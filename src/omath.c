@@ -19,13 +19,19 @@ float ovec3f_get_length(const vec3f* me)
 
 void ovec3f_normalize_me(vec3f* me)
 {
-	if(me->x == 0 && me->x == 0 && me->z == 0)
+	if(me->x == 0 && me->y == 0 && me->z == 0)
 		return;
 
 	float len = ovec3f_get_length(me);
 	me->x /= len;
 	me->y /= len;
 	me->z /= len;
+}
+
+void ovec3f_subtract(const vec3f* a, const vec3f* b, vec3f* out)
+{
+	for(int i = 0; i < 3; i++)
+		out->arr[i] = a->arr[i] - b->arr[i];
 }
 
 float ovec3f_get_dot(const vec3f* me, const vec3f* vec)
@@ -122,6 +128,62 @@ void oquatf_diff(const quatf* me, const quatf* q, quatf* out_q)
 	oquatf_mult(&inv, q, out_q);
 }
 
+void oquatf_slerp (float fT, const quatf* rkP, const quatf* rkQ, bool shortestPath, quatf* out_q)
+{
+	float fCos =  oquatf_get_dot(rkP, rkQ);
+	quatf rkT;
+
+	// Do we need to invert rotation?
+	if (fCos < 0.0f && shortestPath)
+	{
+		fCos = -fCos;
+		rkT = *rkQ;
+		oquatf_inverse(&rkT);
+	}
+	else
+	{
+		rkT = *rkQ;
+	}
+
+	if (fabsf(fCos) < 1 - 0.001f)
+	{
+		// Standard case (slerp)
+		float fSin = sqrtf(1 - (fCos*fCos));
+		float fAngle = atan2f(fSin, fCos); 
+		float fInvSin = 1.0f / fSin;
+		float fCoeff0 = sin((1.0f - fT) * fAngle) * fInvSin;
+		float fCoeff1 = sin(fT * fAngle) * fInvSin;
+		
+		out_q->x = fCoeff0 * rkP->x + fCoeff1 * rkT.x;
+		out_q->y = fCoeff0 * rkP->y + fCoeff1 * rkT.y;
+		out_q->z = fCoeff0 * rkP->z + fCoeff1 * rkT.z;
+		out_q->w = fCoeff0 * rkP->w + fCoeff1 * rkT.w;
+			
+		//return fCoeff0 * rkP + fCoeff1 * rkT;
+	}
+	else
+	{
+		// There are two situations:
+		// 1. "rkP" and "rkQ" are very close (fCos ~= +1), so we can do a linear
+		//    interpolation safely.
+		// 2. "rkP" and "rkQ" are almost inverse of each other (fCos ~= -1), there
+		//    are an infinite number of possibilities interpolation. but we haven't
+		//    have method to fix this case, so just use linear interpolation here.
+		//Quaternion t = (1.0f - fT) * rkP + fT * rkT;
+		
+		out_q->x = (1.0f - fT) * rkP->x + fT * rkT.x;
+		out_q->y = (1.0f - fT) * rkP->y + fT * rkT.y;
+		out_q->z = (1.0f - fT) * rkP->z + fT * rkT.z;
+		out_q->w = (1.0f - fT) * rkP->w + fT * rkT.w;
+			
+		oquatf_normalize_me(out_q);
+		
+		// taking the complement requires renormalisation
+		//t.normalise();
+		//return t;
+	}
+}
+
 void oquatf_get_mat4x4(const quatf* me, const vec3f* point, float mat[4][4])
 {
 	mat[0][0] = 1 - 2 * me->y * me->y - 2 * me->z * me->z;
@@ -186,6 +248,39 @@ void omat4x4f_init_perspective(mat4x4f* me, float fovy_rad, float aspect, float 
 	me->m[2][1] = 0;
 	me->m[2][2] = -(zfar + znear) / delta;
 	me->m[2][3] = -2.0f * znear * zfar / delta;
+
+	me->m[3][0] = 0;
+	me->m[3][1] = 0;
+	me->m[3][2] = -1.0f;
+	me->m[3][3] = 0;
+}
+
+void omat4x4f_init_frustum(mat4x4f* me, float left, float right, float bottom, float top, float znear, float zfar)
+{
+    omat4x4f_init_ident(me);
+
+    float delta_x = right - left;
+    float delta_y = top - bottom;
+	float delta_z = zfar - znear;
+	if ((delta_x == 0.0f) || (delta_y == 0.0f) || (delta_z == 0.0f)) {
+        /* can't divide by zero, so just give back identity */
+		return;
+	}
+
+	me->m[0][0] = 2.0f * znear / delta_x;
+	me->m[0][1] = 0;
+	me->m[0][2] = (right + left) / delta_x;
+	me->m[0][3] = 0;
+
+	me->m[1][0] = 0;
+	me->m[1][1] = 2.0f * znear / delta_y;
+	me->m[1][2] = (top + bottom) / delta_y;
+	me->m[1][3] = 0;
+
+	me->m[2][0] = 0;
+	me->m[2][1] = 0;
+	me->m[2][2] = -(zfar + znear) / delta_z;
+	me->m[2][3] = -2.0f * zfar * znear / delta_z;
 
 	me->m[3][0] = 0;
 	me->m[3][1] = 0;

@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "rift.h"
 
+#define SKIP8 (buffer++)
 #define SKIP_CMD (buffer++)
 #define READ8 *(buffer++);
 #define READ16 *buffer | (*(buffer + 1) << 8); buffer += 2;
@@ -21,11 +22,38 @@
 #define WRITE16(_val) WRITE8((_val) & 0xff); WRITE8(((_val) >> 8) & 0xff);
 #define WRITE32(_val) WRITE16((_val) & 0xffff) *buffer; WRITE16(((_val) >> 16) & 0xffff);
 
+bool decode_position_info(pkt_position_info* p, const unsigned char* buffer, int size)
+{
+	if(size != 30) {
+		LOGE("invalid packet size (expected 30 but got %d)", size);
+		return false;
+	}
+
+	SKIP_CMD;
+	SKIP8;
+	SKIP8;
+	p->flags = READ8;
+	p->pos_x = READ32;
+	p->pos_y = READ32;
+	p->pos_z = READ32;
+	p->dir_x = READ16;
+	p->dir_y = READ16;
+	p->dir_z = READ16;
+	SKIP8;
+	SKIP8;
+	p->index = READ8;
+	SKIP8;
+	p->num = READ8;
+	SKIP8;
+	p->type = READ8;
+
+	return true;
+}
 
 bool decode_sensor_range(pkt_sensor_range* range, const unsigned char* buffer, int size)
 {
-	if(size != 8){
-		LOGE("invalid packet size");
+	if(!(size == 8 || size == 9)){
+		LOGE("invalid packet size (expected 8 or 9 but got %d)", size);
 		return false;
 	}
 
@@ -40,8 +68,8 @@ bool decode_sensor_range(pkt_sensor_range* range, const unsigned char* buffer, i
 
 bool decode_sensor_display_info(pkt_sensor_display_info* info, const unsigned char* buffer, int size)
 {
-	if(size != 56){
-		LOGE("invalid packet size");
+	if(!(size == 56 || size == 57)){
+		LOGE("invalid packet size (expected 56 or 57 but got %d)", size);
 		return false;
 	}
 
@@ -56,19 +84,20 @@ bool decode_sensor_display_info(pkt_sensor_display_info* info, const unsigned ch
 	info->lens_separation = READFIXED;
 	info->eye_to_screen_distance[0] = READFIXED;
 	info->eye_to_screen_distance[1] = READFIXED;
-	
-	info->distortion_type_opts = 0;	
 
-	for(int i = 0; i < 6; i++)
+	info->distortion_type_opts = 0;
+
+	for(int i = 0; i < 6; i++){
 		info->distortion_k[i] = READFLOAT;
+	}
 
 	return true;
 }
 
 bool decode_sensor_config(pkt_sensor_config* config, const unsigned char* buffer, int size)
 {
-	if(size != 7){
-		LOGE("invalid packet size");
+	if(!(size == 7 || size == 8)){
+		LOGE("invalid packet size (expected 7 or 8 but got %d)", size);
 		return false;
 	}
 
@@ -100,19 +129,20 @@ static void decode_sample(const unsigned char* buffer, int32_t* smp)
 
 bool decode_tracker_sensor_msg(pkt_tracker_sensor* msg, const unsigned char* buffer, int size)
 {
-	if(size != 62){
-		LOGE("invalid packet size");
+	if(!(size == 62 || size == 64)){
+		LOGE("invalid packet size (expected 62 or 64 but got %d)", size);
 		return false;
 	}
 
 	SKIP_CMD;
 	msg->num_samples = READ8;
 	msg->timestamp = READ16;
+	msg->timestamp *= 1000; // DK1 timestamps are in milliseconds
 	msg->last_command_id = READ16;
 	msg->temperature = READ16;
 
-	int actual = OHMD_MIN(msg->num_samples, 3);
-	for(int i = 0; i < actual; i++){
+	msg->num_samples = OHMD_MIN(msg->num_samples, 3);
+	for(int i = 0; i < msg->num_samples; i++){
 		decode_sample(buffer, msg->samples[i].accel);
 		buffer += 8;
 
@@ -121,10 +151,49 @@ bool decode_tracker_sensor_msg(pkt_tracker_sensor* msg, const unsigned char* buf
 	}
 
 	// Skip empty samples
-	buffer += (3 - actual) * 16;
+	buffer += (3 - msg->num_samples) * 16;
 	for(int i = 0; i < 3; i++){
 		msg->mag[i] = READ16;
 	}
+
+	return true;
+}
+
+bool decode_tracker_sensor_msg_dk2(pkt_tracker_sensor* msg, const unsigned char* buffer, int size)
+{
+	if(!(size == 64)){
+		LOGE("invalid packet size (expected 62 or 64 but got %d)", size);
+		return false;
+	}
+
+	SKIP_CMD;
+	msg->last_command_id = READ16;
+	msg->num_samples = READ8;
+	/* Next is the number of samples since start, excluding the samples
+	contained in this packet */
+	buffer += 2; // unused: nb_samples_since_start
+	msg->temperature = READ16;
+	msg->timestamp = READ32;
+
+	/* Second sample value is junk (outdated/uninitialized) value if
+	num_samples < 2. */
+	msg->num_samples = OHMD_MIN(msg->num_samples, 2);
+	for(int i = 0; i < msg->num_samples; i++){
+		decode_sample(buffer, msg->samples[i].accel);
+		buffer += 8;
+
+		decode_sample(buffer, msg->samples[i].gyro);
+		buffer += 8;
+	}
+
+	// Skip empty samples
+	buffer += (2 - msg->num_samples) * 16;
+
+	for(int i = 0; i < 3; i++){
+		msg->mag[i] = READ16;
+	}
+
+	// TODO: positional tracking data and frame data
 
 	return true;
 }
@@ -153,6 +222,23 @@ int encode_keep_alive(unsigned char* buffer, const pkt_keep_alive* keep_alive)
 	WRITE16(keep_alive->command_id);
 	WRITE16(keep_alive->keep_alive_interval);
 	return 5; // keep alive packet size
+}
+
+int encode_enable_components(unsigned char* buffer, bool display, bool audio, bool leds)
+{
+	uint8_t flags = 0;
+
+	WRITE8(RIFT_CMD_ENABLE_COMPONENTS);
+	WRITE16(0); // last command ID
+
+	if (display)
+		flags |= RIFT_COMPONENT_DISPLAY;
+	if (audio)
+		flags |= RIFT_COMPONENT_AUDIO;
+	if (leds)
+		flags |= RIFT_COMPONENT_LEDS;
+	WRITE8(flags);
+	return 4; // component flags packet size
 }
 
 void dump_packet_sensor_range(const pkt_sensor_range* range)
@@ -212,7 +298,7 @@ void dump_packet_tracker_sensor(const pkt_tracker_sensor* sensor)
 	LOGD("  num samples:     %u", sensor->num_samples);
 	LOGD("  magnetic field:  %i %i %i", sensor->mag[0], sensor->mag[1], sensor->mag[2]);
 
-	for(int i = 0; i < OHMD_MIN(sensor->num_samples, 3); i++){
+	for(int i = 0; i < sensor->num_samples; i++){
 		LOGD("    accel: %d %d %d", sensor->samples[i].accel[0], sensor->samples[i].accel[1], sensor->samples[i].accel[2]);
 		LOGD("    gyro:  %d %d %d", sensor->samples[i].gyro[0], sensor->samples[i].gyro[1], sensor->samples[i].gyro[2]);
 	}
