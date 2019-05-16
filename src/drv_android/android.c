@@ -1,12 +1,13 @@
+// Copyright 2013, Fredrik Hultin.
+// Copyright 2013, Jakob Bornecrantz.
+// Copyright 2015, Joey Ferwerda.
+// SPDX-License-Identifier: BSL-1.0
 /*
  * OpenHMD - Free and Open Source API and drivers for immersive technology.
- * Copyright (C) 2013 Fredrik Hultin.
- * Copyright (C) 2013 Jakob Bornecrantz.
- * Copyright (C) 2015 Joey Ferwerda
- * Distributed under the Boost 1.0 licence, see LICENSE for full text.
  */
 
 /* Android Driver */
+
 
 #include "android.h"
 
@@ -20,7 +21,6 @@ typedef struct {
 
 	//Android specific
 	#ifdef __ANDROID__
-    android_app* state;
     ASensorManager* sensorManager;
     const ASensor* accelerometerSensor;
     const ASensor* gyroscopeSensor;
@@ -92,14 +92,13 @@ static void update_device(ohmd_device* device)
 {
     android_priv* priv = (android_priv*)device;
 
-    if(!priv->state)
-        return;
+    ALooper* looper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
 
     //We need this since during init the android_app state is not set yet
     if (priv->firstRun == 1)
     {
         priv->sensorEventQueue = ASensorManager_createEventQueue(priv->sensorManager,
-                                priv->state->looper, LOOPER_ID_USER, android_sensor_callback, (void*)priv);
+                                    looper, ALOOPER_POLL_CALLBACK, android_sensor_callback, (void*)priv);
 
         // Start sensors in case this was not done already.
         if (priv->accelerometerSensor != NULL)
@@ -116,6 +115,8 @@ static void update_device(ohmd_device* device)
         }
         priv->firstRun = 0;
     }
+
+    ALooper_pollAll(0, NULL, NULL, NULL);
 }
 
 static int getf(ohmd_device* device, ohmd_float_value type, float* out)
@@ -123,10 +124,17 @@ static int getf(ohmd_device* device, ohmd_float_value type, float* out)
 	android_priv* priv = (android_priv*)device;
 
 	switch(type){
-		case OHMD_ROTATION_QUAT: {
-				*(quatf*)out = priv->sensor_fusion.orient;
-				break;
-			}
+                case OHMD_ROTATION_QUAT: {
+                    if (!priv->gyroscopeSensor)
+                        *(quatf*)out = priv->sensor_fusion.orient;
+                    else {
+                        // 90° rotation to restore the standard frame
+                        quatf rotated = {-M_SQRT2 / 2, 0, 0, M_SQRT2 / 2};
+                        oquatf_mult_me(&rotated, &priv->sensor_fusion.orient);
+                        *(quatf*)out = rotated;
+                    }
+                    break;
+                }
 
 		case OHMD_POSITION_VECTOR:
 			out[0] = out[1] = out[2] = 0;
@@ -151,10 +159,6 @@ static int set_data(ohmd_device* device, ohmd_data_value type, void* in)
 	android_priv* priv = (android_priv*)device;
 
 	switch(type){
-		case OHMD_DRIVER_DATA: {
-		    priv->state = (android_app*)in;
-            break;
-		}
 		case OHMD_DRIVER_PROPERTIES: {
             set_android_properties(device, (ohmd_device_properties*)in);
             break;
@@ -217,8 +221,10 @@ static ohmd_device* open_device(ohmd_driver* driver, ohmd_device_desc* desc)
     //Check if accelerometer only fallback is required
     if (!priv->gyroscopeSensor)
         nofusion_init(&priv->sensor_fusion);
-    else
+    else {
         ofusion_init(&priv->sensor_fusion); //Default when all sensors are available
+        priv->sensor_fusion.flags = 0; // Disable the gravity
+    }
 
 	return (ohmd_device*)priv;
 }

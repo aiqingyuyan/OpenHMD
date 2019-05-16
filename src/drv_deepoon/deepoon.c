@@ -1,11 +1,12 @@
+// Copyright 2013, Fredrik Hultin.
+// Copyright 2013, Jakob Bornecrantz.
+// SPDX-License-Identifier: BSL-1.0
 /*
  * OpenHMD - Free and Open Source API and drivers for immersive technology.
- * Copyright (C) 2013 Fredrik Hultin.
- * Copyright (C) 2013 Jakob Bornecrantz.
- * Distributed under the Boost 1.0 licence, see LICENSE for full text.
  */
 
 /* Deepoon Driver - HID/USB Driver Implementation */
+
 
 #include <stdlib.h>
 #include <hidapi.h>
@@ -15,6 +16,7 @@
 #include <assert.h>
 
 #include "deepoon.h"
+#include "../hid.h"
 
 #define TICK_LEN (1.0f / 1000000.0f) // 1000 Hz ticks
 #define KEEP_ALIVE_VALUE (10 * 1000)
@@ -187,21 +189,6 @@ static void close_device(ohmd_device* device)
 	rift_priv* priv = rift_priv_get(device);
 	hid_close(priv->handle);
 	free(priv);
-}
-
-static char* _hid_to_unix_path(char* path)
-{
-	char bus [4];
-	char dev [4];
-	char *result = malloc( sizeof(char) * ( 20 + 1 ) );
-
-	sprintf (bus, "%.*s\n", 4, path);
-	sprintf (dev, "%.*s\n", 4, path + 5);
-
-	sprintf (result, "/dev/bus/usb/%03d/%03d",
-		(int)strtol(bus, NULL, 16),
-		(int)strtol(dev, NULL, 16));
-	return result;
 }
 
 static ohmd_device* open_device(ohmd_driver* driver, ohmd_device_desc* desc)

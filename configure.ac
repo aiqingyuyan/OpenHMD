@@ -1,14 +1,18 @@
 name='openhmd'
-version='0.0.1'
-library_interface_version='0:0:0'
+version='0.3.0'
 email='noname@nurd.se'
 
 AC_PREREQ([2.13])
-AC_INIT([openhmd], [0.0.1], [noname@nurd.se])
+AC_INIT([openhmd], [0.3.0], [noname@nurd.de])
 AM_INIT_AUTOMAKE([foreign -Wall])
 m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 LT_INIT
 AC_CANONICAL_HOST
+
+# Just before release, the LT_VERSION string should be modified. See
+# https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
+# for details how to increment the current:revision:age fields.
+AC_SUBST([LT_VERSION], [1:0:1])
 
 # 0.24 automatically calls AC_SUBST() in PKG_CHECK_MODULES()
 PKG_PROG_PKG_CONFIG([0.24])
@@ -16,16 +20,23 @@ PKG_PROG_PKG_CONFIG([0.24])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 hidapi="hidapi"
+deps_ld_flags="-lhidapi"
 AC_SUBST(hidapi)
+AC_SUBST(deps_ld_flags)
 
 AC_SUBST(PKG_CONFIG_EXTRA_PATH, "")
 AC_SUBST(EXTRA_LD_FLAGS, "")
 
 AC_MSG_CHECKING([operating system])
 AS_CASE(["$host"],
+	[*-androideabi],
+		[hidapi=""
+		deps_ld_flags="-landroid"
+		AC_SUBST(EXTRA_LD_FLAGS, "-lm")],
 	[*-linux*],
 		[AC_MSG_RESULT([$host (Linux)])
 		hidapi="hidapi-libusb"
+		deps_ld_flags="-lhidapi-libusb"
 
 		#link with realtime lib on linux for clock_gettime, and libm for math functions such as sincosf
 		AC_SUBST(EXTRA_LD_FLAGS, "-lrt -lpthread -lm")],
@@ -33,7 +44,9 @@ AS_CASE(["$host"],
 		[AC_SUBST(PKG_CONFIG_EXTRA_PATH, "libdata/")
 		AC_SUBST(EXTRA_LD_FLAGS, "-lthr")],
 	[*-kfreebsd*],
-		[AC_SUBST(EXTRA_LD_FLAGS, "-lpthread")])
+		[AC_SUBST(EXTRA_LD_FLAGS, "-lpthread")]
+	[*-darwin*],
+		[AC_MSG_RESULT([$host (Mac OS X)])])
 
 # Oculus Rift Driver
 AC_ARG_ENABLE([driver-oculus-rift],
@@ -62,6 +75,15 @@ AC_ARG_ENABLE([driver-deepoon],
 
 AM_CONDITIONAL([BUILD_DRIVER_DEEPOON], [test "x$driver_deepoon_enabled" != "xno"])
 
+# Windows Mixed Reality Driver
+AC_ARG_ENABLE([driver-wmr],
+        [AS_HELP_STRING([--disable-driver-wmr],
+                [disable building of Windows Mixed Reality driver [default=yes]])],
+        [driver_wmr_enabled=$enableval],
+        [driver_wmr_enabled='yes'])
+
+AM_CONDITIONAL([BUILD_DRIVER_WMR], [test "x$driver_wmr_enabled" != "xno"])
+
 # Sony PSVR Driver
 AC_ARG_ENABLE([driver-psvr],
         [AS_HELP_STRING([--disable-driver-psvr],
@@ -79,6 +101,15 @@ AC_ARG_ENABLE([driver-nolo],
         [driver_nolo_enabled='yes'])
 
 AM_CONDITIONAL([BUILD_DRIVER_NOLO], [test "x$driver_nolo_enabled" != "xno"])
+
+# 3Glasses HMD driver
+AC_ARG_ENABLE([driver-xgvr],
+        [AS_HELP_STRING([--disable-driver-xgvr],
+                [disable building of 3glasses driver [default=yes]])],
+        [driver_xgvr_enabled=$enableval],
+        [driver_xgvr_enabled='yes'])
+
+AM_CONDITIONAL([BUILD_DRIVER_XGVR], [test "x$driver_xgvr_enabled" != "xno"])
 
 # External Driver
 AC_ARG_ENABLE([driver-external],
@@ -118,6 +149,10 @@ AS_IF([test "x$driver_psvr_enabled" != "xno"],
 AS_IF([test "x$driver_nolo_enabled" != "xno"],
 	[PKG_CHECK_MODULES([hidapi], [$hidapi] >= 0.0.5)])
 
+# Libs required by 3Glasses HMD Driver
+AS_IF([test "x$driver_xgvr_enabled" != "xno"],
+        [PKG_CHECK_MODULES([hidapi], [$hidapi] >= 0.0.5)])
+
 # Do we build OpenGL example?
 AC_ARG_ENABLE([openglexample],
         [AS_HELP_STRING([--enable-openglexample],
@@ -138,7 +173,9 @@ AS_IF([test "x$openglexample_enabled" != "xno"], [
 
 				# if that fails, try -lopengl32 (win32)
 				[AC_CHECK_LIB(opengl32, main, [GL_LIBS=-lopengl32],
-					AC_MSG_ERROR([GL not found])
+					[AC_CHECK_HEADERS([OpenGL/gl.h], [GL_LIBS="-framework OpenGL"],
+						AC_MSG_ERROR([GL not found])
+					)]
 				)]
 			)]
 	)

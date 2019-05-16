@@ -1,20 +1,18 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.1)
 
-project(openhmd C CXX)
-set(CMAKE_C_FLAGS "-std=c99")
+project(openhmd C)
+
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
-include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
+set(LIB_VERSION_MAJOR 0)
+set(LIB_VERSION_MINOR 1)
+set(LIB_VERSION_PATCH 0)
+set(LIB_VERSION_STRING ${LIB_VERSION_MAJOR}.${LIB_VERSION_MINOR}.${LIB_VERSION_PATCH})
 
-if (MSVC)
-  # Add the "lib" prefix for generated .lib outputs.
-  set(LIB_PREFIX lib)
-else (MSVC)
-  # When building with "make", "lib" prefix will be added automatically by
-  # the build tool.
-  set(LIB_PREFIX)
-endif (MSVC)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
+
+option(BUILD_BOTH_STATIC_SHARED_LIBS OFF)
 
 #source files set just for Android
 set(openhmd_source_files
@@ -27,16 +25,18 @@ set(openhmd_source_files
 	${CMAKE_CURRENT_LIST_DIR}/src/shaders.c
 )
 
-OPTION(OPENHMD_DRIVER_OCULUS_RIFT "Oculus Rift DK1 and DK2" ON)
-OPTION(OPENHMD_DRIVER_DEEPOON "Deepoon E2" ON)
-OPTION(OPENHMD_DRIVER_PSVR "Sony PSVR" ON)
-OPTION(OPENHMD_DRIVER_HTC_VIVE "HTC Vive" ON)
-OPTION(OPENHMD_DRIVER_NOLO "NOLO VR CV1" ON)
-OPTION(OPENHMD_DRIVER_EXTERNAL "External sensor driver" ON)
-OPTION(OPENHMD_DRIVER_ANDROID "General Android driver" OFF)
+option(OPENHMD_DRIVER_OCULUS_RIFT "Oculus Rift DK1 and DK2" ON)
+option(OPENHMD_DRIVER_DEEPOON "Deepoon E2" ON)
+option(OPENHMD_DRIVER_WMR "Windows Mixed Reality" ON)
+option(OPENHMD_DRIVER_PSVR "Sony PSVR" ON)
+option(OPENHMD_DRIVER_HTC_VIVE "HTC Vive" ON)
+option(OPENHMD_DRIVER_NOLO "NOLO VR CV1" ON)
+option(OPENHMD_DRIVER_XGVR "3Glasses HMD" ON)
+option(OPENHMD_DRIVER_EXTERNAL "External sensor driver" ON)
+option(OPENHMD_DRIVER_ANDROID "General Android driver" OFF)
 
-OPTION(OPENHMD_EXAMPLE_SIMPLE "Simple test binary" ON)
-OPTION(OPENHMD_EXAMPLE_SDL "SDL OpenGL test (outdated)" OFF)
+option(OPENHMD_EXAMPLE_SIMPLE "Simple test binary" ON)
+option(OPENHMD_EXAMPLE_SDL "SDL OpenGL test (outdated)" OFF)
 
 if(OPENHMD_DRIVER_OCULUS_RIFT)
 	set(openhmd_source_files ${openhmd_source_files}
@@ -62,6 +62,18 @@ if(OPENHMD_DRIVER_DEEPOON)
 	set(LIBS ${LIBS} ${HIDAPI_LIBRARIES})
 endif(OPENHMD_DRIVER_DEEPOON)
 
+if(OPENHMD_DRIVER_WMR)
+	set(openhmd_source_files ${openhmd_source_files}
+	${CMAKE_CURRENT_LIST_DIR}/src/drv_wmr/wmr.c
+	${CMAKE_CURRENT_LIST_DIR}/src/drv_wmr/packet.c
+	)
+	add_definitions(-DDRIVER_WMR)
+
+	find_package(HIDAPI REQUIRED)
+	include_directories(${HIDAPI_INCLUDE_DIRS})
+	set(LIBS ${LIBS} ${HIDAPI_LIBRARIES})
+endif(OPENHMD_DRIVER_WMR)
+
 if(OPENHMD_DRIVER_PSVR)
 	set(openhmd_source_files ${openhmd_source_files}
 	${CMAKE_CURRENT_LIST_DIR}/src/drv_psvr/psvr.c
@@ -79,7 +91,7 @@ if(OPENHMD_DRIVER_HTC_VIVE)
 	${CMAKE_CURRENT_LIST_DIR}/src/drv_htc_vive/vive.c
 	${CMAKE_CURRENT_LIST_DIR}/src/drv_htc_vive/packet.c
 	#${CMAKE_CURRENT_LIST_DIR}/src/ext_deps/miniz.c
-	${CMAKE_CURRENT_LIST_DIR}/src/ext_deps/mjson.c
+	${CMAKE_CURRENT_LIST_DIR}/src/ext_deps/nxjson.c
 	)
 	add_definitions(-DDRIVER_HTC_VIVE)
 
@@ -99,6 +111,18 @@ if(OPENHMD_DRIVER_NOLO)
 	include_directories(${HIDAPI_INCLUDE_DIRS})
 	set(LIBS ${LIBS} ${HIDAPI_LIBRARIES})
 endif(OPENHMD_DRIVER_NOLO)
+
+if(OPENHMD_DRIVER_XGVR)
+	set(openhmd_source_files ${openhmd_source_files}
+	${CMAKE_CURRENT_LIST_DIR}/src/drv_3glasses/xgvr.c
+	${CMAKE_CURRENT_LIST_DIR}/src/drv_3glasses/packet.c
+	)
+	add_definitions(-DDRIVER_XGVR)
+
+	find_package(HIDAPI REQUIRED)
+	include_directories(${HIDAPI_INCLUDE_DIRS})
+	set(LIBS ${LIBS} ${HIDAPI_LIBRARIES})
+endif(OPENHMD_DRIVER_XGVR)
 
 if (OPENHMD_DRIVER_EXTERNAL)
 	set(openhmd_source_files ${openhmd_source_files}
@@ -125,17 +149,59 @@ if (OPENHMD_EXAMPLE_SDL)
 	add_subdirectory(./examples/opengl)
 endif (OPENHMD_EXAMPLE_SDL)
 
-if (UNIX)
-	set(LIBS ${LIBS} rt pthread)
-endif (UNIX)
+set(TARGETS "")
 
-link_libraries(${LIBS})
-add_library(openhmd-shared SHARED ${openhmd_source_files})
-SET_TARGET_PROPERTIES(openhmd-shared PROPERTIES OUTPUT_NAME openhmd CLEAN_DIRECT_OUTPUT 1)
-add_library(openhmd-static STATIC ${openhmd_source_files})
-SET_TARGET_PROPERTIES(openhmd-static PROPERTIES OUTPUT_NAME openhmd CLEAN_DIRECT_OUTPUT 1)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_DIR}/)
+if (BUILD_BOTH_STATIC_SHARED_LIBS)
 
-#install properties
-install (TARGETS openhmd-shared openhmd-static DESTINATION lib)
-install (FILES include/openhmd.h DESTINATION include)
+	# Shared
+	add_library(openhmd-shared SHARED ${openhmd_source_files})
+	set_target_properties(openhmd-shared PROPERTIES OUTPUT_NAME openhmd CLEAN_DIRECT_OUTPUT 1)
+
+	# Static
+	add_library(openhmd-static STATIC ${openhmd_source_files})
+	set_target_properties(openhmd-static PROPERTIES OUTPUT_NAME openhmd CLEAN_DIRECT_OUTPUT 1)
+
+	# Alias needed to compile examples
+	add_library(openhmd ALIAS openhmd-shared)
+
+	set(TARGETS "openhmd-shared" "openhmd-static")
+
+else ()
+
+	# Static or Shared
+	add_library(openhmd ${openhmd_source_files})
+
+	export(TARGETS openhmd FILE openhmd-config.cmake)
+
+	set(TARGETS "openhmd")
+
+endif ()
+
+foreach(target ${TARGETS})
+
+	set_target_properties(${target} PROPERTIES VERSION ${LIB_VERSION_STRING} SOVERSION ${LIB_VERSION_MAJOR})
+	target_include_directories(${target} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+	target_link_libraries(${target} ${LIBS})
+	if (UNIX AND NOT APPLE)
+		target_link_libraries(${target} rt)
+	endif()
+	if (UNIX)
+		target_link_libraries(${target} pthread)
+	endif (UNIX)
+
+	get_target_property(target_type ${target} TYPE)
+	if (target_type STREQUAL "STATIC_LIBRARY")
+	    target_compile_definitions(${target} PUBLIC -DOHMD_STATIC)
+	endif()
+
+endforeach(target)
+
+CONFIGURE_FILE(
+  "${CMAKE_CURRENT_SOURCE_DIR}/pkg-config/openhmd.pc.cmakein"
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc"
+)
+
+install(TARGETS ${TARGETS} DESTINATION lib)
+install(FILES include/openhmd.h DESTINATION include)
+install(FILES "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.pc"
+        DESTINATION lib/pkgconfig)

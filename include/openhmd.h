@@ -32,7 +32,7 @@ extern "C" {
 #endif
 #else
 #define OHMD_APIENTRY
-#define OHMD_APIENTRYDLL
+#define OHMD_APIENTRYDLL __attribute__((visibility("default")))
 #endif
 
 /** Maximum length of a string, including termination, in OpenHMD. */
@@ -61,6 +61,10 @@ typedef enum {
 typedef enum {
 	OHMD_GLSL_DISTORTION_VERT_SRC = 0,
 	OHMD_GLSL_DISTORTION_FRAG_SRC = 1,
+	OHMD_GLSL_330_DISTORTION_VERT_SRC = 2,
+	OHMD_GLSL_330_DISTORTION_FRAG_SRC = 3,
+	OHMD_GLSL_ES_DISTORTION_VERT_SRC = 4,
+	OHMD_GLSL_ES_DISTORTION_FRAG_SRC = 5,
 } ohmd_string_description;
 
 /** Standard controls. Note that this is not an index into the control state. 
@@ -79,6 +83,9 @@ typedef enum {
 	OHMD_BUTTON_B       = 10,
 	OHMD_BUTTON_X       = 11,
 	OHMD_BUTTON_Y       = 12,
+	OHMD_VOLUME_PLUS    = 13,
+	OHMD_VOLUME_MINUS   = 14,
+	OHMD_MIC_MUTE       = 15,
 } ohmd_control_hint;
 
 /** Control type. Indicates whether controls are digital or analog. */
@@ -173,10 +180,10 @@ typedef enum {
 	/** int[1] (get, ohmd_geti()): Get the number of analog and digital controls of the device. */
 	OHMD_CONTROL_COUNT                    =  4,
 
-	/** int[OHMD_CONTROL_COUNT] (get, ohmd_geti()): Get whether controls are digital or analog. */
+	/** int[OHMD_CONTROL_COUNT] (get, ohmd_geti()): Get what function controls serve. */
 	OHMD_CONTROLS_HINTS   		          =  5,
 	
-	/** int[OHMD_CONTROL_COUNT] (get, ohmd_geti()): Get what function controls serve. */
+	/** int[OHMD_CONTROL_COUNT] (get, ohmd_geti()): Get whether controls are digital or analog. */
 	OHMD_CONTROLS_TYPES                   =  6,
 } ohmd_int_value;
 
@@ -198,14 +205,6 @@ typedef enum {
 	    Call ohmd_update(); must be called frequently, at least 10 times per second, if the background threads are disabled. */
 	OHMD_IDS_AUTOMATIC_UPDATE = 0,
 } ohmd_int_settings;
-
-/** Button states for digital input events. */
-typedef enum {
-	/** Button was pressed. */
-	OHMD_BUTTON_DOWN = 0,
-	/** Button was released. */
-	OHMD_BUTTON_UP   = 1
-} ohmd_button_state;
 
 /** Device classes. */
 typedef enum 
@@ -452,6 +451,32 @@ OHMD_APIENTRYDLL int OHMD_APIENTRY ohmd_device_seti(ohmd_device* device, ohmd_in
  * @return 0 on success, <0 on failure.
  **/
 OHMD_APIENTRYDLL int OHMD_APIENTRY ohmd_device_set_data(ohmd_device* device, ohmd_data_value type, const void* in);
+
+/**
+ * Get the library version.
+ *
+ * @param major Major version.
+ * @param minor Minor version.
+ * @param patch Patch version.
+ **/
+OHMD_APIENTRYDLL void OHMD_APIENTRY ohmd_get_version(int* out_major, int* out_minor, int* out_patch);
+
+/**
+ * Check that the library is compatible with the required version.
+ *
+ * @param major Required major version.
+ * @param minor Required minor version.
+ * @param patch Required patch version.
+ * @return OMHD_S_OK if the version is compatible or OHMD_S_UNSUPPORTED if it's not.
+ **/
+OHMD_APIENTRYDLL ohmd_status OHMD_APIENTRY ohmd_require_version(int major, int minor, int patch);
+
+/**
+ * Sleep for the given amount of seconds.
+ *
+ * @param time Time to sleep in seconds.
+ **/
+OHMD_APIENTRYDLL void OHMD_APIENTRY ohmd_sleep(double time);
 
 #ifdef __cplusplus
 }

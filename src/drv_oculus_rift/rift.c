@@ -1,11 +1,12 @@
+// Copyright 2013, Fredrik Hultin.
+// Copyright 2013, Jakob Bornecrantz.
+// SPDX-License-Identifier: BSL-1.0
 /*
  * OpenHMD - Free and Open Source API and drivers for immersive technology.
- * Copyright (C) 2013 Fredrik Hultin.
- * Copyright (C) 2013 Jakob Bornecrantz.
- * Distributed under the Boost 1.0 licence, see LICENSE for full text.
  */
 
 /* Oculus Rift Driver - HID/USB Driver Implementation */
+
 
 #include <stdlib.h>
 #include <hidapi.h>
@@ -15,6 +16,7 @@
 #include <assert.h>
 
 #include "rift.h"
+#include "../hid.h"
 
 #define TICK_LEN (1.0f / 1000.0f) // 1000 Hz ticks
 #define KEEP_ALIVE_VALUE (10 * 1000)
@@ -44,11 +46,14 @@ typedef struct {
 typedef enum {
 	REV_DK1,
 	REV_DK2,
-	REV_CV1
+	REV_CV1,
+
+	REV_GEARVR_GEN1
 } rift_revision;
 
 typedef struct {
 	const char* name;
+	int company;
 	int id;
 	int iface;
 	rift_revision rev;
@@ -214,21 +219,6 @@ static void close_device(ohmd_device* device)
 	rift_priv* priv = rift_priv_get(device);
 	hid_close(priv->handle);
 	free(priv);
-}
-
-static char* _hid_to_unix_path(char* path)
-{
-	char bus [5];
-	char dev [5];
-	char *result = malloc( sizeof(char) * ( 20 + 1 ) );
-
-	sprintf (bus, "%.*s", 4, path);
-	sprintf (dev, "%.*s", 4, path + 5);
-
-	sprintf (result, "/dev/bus/usb/%03d/%03d",
-		(int)strtol(bus, NULL, 16),
-		(int)strtol(dev, NULL, 16));
-	return result;
 }
 
 #define UDEV_WIKI_URL "https://github.com/OpenHMD/OpenHMD/wiki/Udev-rules-list"
@@ -426,21 +416,24 @@ cleanup:
 }
 
 #define OCULUS_VR_INC_ID 0x2833
-#define RIFT_ID_COUNT 4
+#define SAMSUNG_ELECTRONICS_CO_ID 0x04e8
+#define RIFT_ID_COUNT 5
 
 static void get_device_list(ohmd_driver* driver, ohmd_device_list* list)
 {
 	// enumerate HID devices and add any Rifts found to the device list
 
 	rift_devices rd[RIFT_ID_COUNT] = {
-		{ "Rift (DK1)", 0x0001,	-1, REV_DK1 },
-		{ "Rift (DK2)", 0x0021,	-1, REV_DK2 },
-		{ "Rift (DK2)", 0x2021,	-1, REV_DK2 },
-		{ "Rift (CV1)", 0x0031,	 0, REV_CV1 },
+		{ "Rift (DK1)", OCULUS_VR_INC_ID, 0x0001,	-1, REV_DK1 },
+		{ "Rift (DK2)", OCULUS_VR_INC_ID, 0x0021,	-1, REV_DK2 },
+		{ "Rift (DK2)", OCULUS_VR_INC_ID, 0x2021,	-1, REV_DK2 },
+		{ "Rift (CV1)", OCULUS_VR_INC_ID, 0x0031,	 0, REV_CV1 },
+
+		{ "GearVR (Gen1)", SAMSUNG_ELECTRONICS_CO_ID, 0xa500,	 0, REV_GEARVR_GEN1 },
 	};
 
 	for(int i = 0; i < RIFT_ID_COUNT; i++){
-		struct hid_device_info* devs = hid_enumerate(OCULUS_VR_INC_ID, rd[i].id);
+		struct hid_device_info* devs = hid_enumerate(rd[i].company, rd[i].id);
 		struct hid_device_info* cur_dev = devs;
 
 		if(devs == NULL)

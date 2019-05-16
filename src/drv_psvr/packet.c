@@ -1,3 +1,12 @@
+// Copyright 2016, Joey Ferwerda.
+// SPDX-License-Identifier: BSL-1.0
+/*
+ * OpenHMD - Free and Open Source API and drivers for immersive technology.
+ */
+
+/* Sony PSVR Driver - Packet reading code. */
+
+
 #include "psvr.h"
 
 #ifdef _MSC_VER
@@ -32,9 +41,12 @@ bool psvr_decode_sensor_packet(psvr_sensor_packet* pkt, const unsigned char* buf
 		return false;
 	}
 
-	buffer += 2; //skip 2
-	pkt->samples[0].volume = read16(&buffer); //volume
-	buffer += 12; //unknown, skip 12
+	pkt->buttons = read8(&buffer);
+	buffer += 1; //skip 1
+	pkt->volume = read16(&buffer); //volume
+	buffer += 1; //unknown, skip 1
+	pkt->state = read8(&buffer);
+	buffer += 10; //unknown, skip 10
 	pkt->samples[0].tick = read32(&buffer); //TICK
 	// acceleration
 	for(int i = 0; i < 3; i++){
@@ -45,9 +57,18 @@ bool psvr_decode_sensor_packet(psvr_sensor_packet* pkt, const unsigned char* buf
 	for(int i = 0; i < 3; i++){
 		pkt->samples[0].accel[i] = read16(&buffer);
 	}//34
-	buffer += 23; //probably other sample somewhere
-	pkt->samples[0].proximity = read8(&buffer); //255 for close
-	pkt->samples[0].proximity_state = read8(&buffer); // 0 (nothing) to 3 (headset is on)
+	pkt->samples[1].tick = read32(&buffer);
+	for(int i = 0; i < 3; i++){
+		pkt->samples[1].gyro[i] = read16(&buffer);
+	}
+	for(int i = 0; i < 3; i++){
+		pkt->samples[1].accel[i] = read16(&buffer);
+	}//50
+	buffer += 5; //unknown, skip 5
+	pkt->button_raw = read16(&buffer);
+	pkt->proximity = read16(&buffer); // ~150 (nothing) to 1023 (headset is on)
+	buffer += 6; //unknown, skip 6
+	pkt->seq = read8(&buffer);
 
 	return true;
 }
