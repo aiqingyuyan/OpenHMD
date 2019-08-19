@@ -68,6 +68,7 @@ _drivers = get_option('drivers')
 if _drivers.contains('rift')
 	sources += [
 		'src/drv_oculus_rift/rift.c',
+		'src/drv_oculus_rift/rift-hmd-radio.c',
 		'src/drv_oculus_rift/packet.c',
 	]
 	c_args += '-DDRIVER_OCULUS_RIFT'
@@ -113,7 +114,8 @@ endif
 if _drivers.contains('wmr')
 	sources += [
 		'src/drv_wmr/wmr.c',
-		'src/drv_wmr/packet.c'
+		'src/drv_wmr/packet.c',
+		'src/ext_deps/nxjson.c'
 	]
 	c_args += '-DDRIVER_WMR'
 	deps += dep_hidapi
@@ -221,3 +223,27 @@ pkg.generate(
 	url: 'http://www.openhmd.net/',
 )
 install_headers('include/openhmd.h', subdir: 'openhmd')
+
+
+#
+# Unit tests
+#
+
+unittests_sources = [
+	'src/omath.c',
+	'tests/unittests/highlevel.c',
+	'tests/unittests/main.c',
+	'tests/unittests/quat.c',
+	'tests/unittests/tests.h',
+	'tests/unittests/vec.c'
+]
+
+unittests = executable(
+	'openhmd_unittests',
+	unittests_sources,
+	include_directories: include_directories('./include', './src'),
+	link_with: [openhmd_lib],
+	dependencies: [dep_libm, dep_threads]
+)
+
+test('unittests', unittests)
